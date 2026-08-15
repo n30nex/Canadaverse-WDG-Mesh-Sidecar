@@ -161,6 +161,12 @@ def test_all_three_exact_board_targets_are_pinned():
     assert "jgromes/RadioLib @ 7.7.1" in PLATFORMIO
 
 
+def test_heltec_v3_uses_the_wired_sx1262_reset_pin():
+    v3_start = BOARD_HEADER.index("#elif defined(WDG_BOARD_HELTEC_V3)")
+    v4_start = BOARD_HEADER.index("#elif defined(WDG_BOARD_HELTEC_V4)", v3_start)
+    assert "constexpr int kLoRaReset = 12;" in BOARD_HEADER[v3_start:v4_start]
+
+
 def test_v4_front_end_uses_upstream_power_and_rx_patch_contract():
     for token in (
         "constexpr int kFemPowerPin = 7;",

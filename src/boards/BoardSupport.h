@@ -42,7 +42,7 @@ constexpr int kLoRaMosi = 10;
 constexpr int kLoRaNss = 8;
 constexpr int kLoRaDio1 = 14;
 constexpr int kLoRaBusy = 13;
-constexpr int kLoRaReset = RADIOLIB_NC;
+constexpr int kLoRaReset = 12;
 constexpr int8_t kRadioTxPowerDbm = 22;
 constexpr int8_t kEffectiveTxPowerDbm = 22;
 #elif defined(WDG_BOARD_HELTEC_V4)

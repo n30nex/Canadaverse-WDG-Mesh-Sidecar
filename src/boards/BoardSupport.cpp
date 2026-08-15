@@ -75,9 +75,10 @@ void begin() {
   delay(10);
   Wire.begin(17, 18);
 #elif defined(WDG_BOARD_HELTEC_V4)
-  // Match Heltec's upstream OLED profile and initialize its external LoRa FEM.
+  // Heltec V4 Vext is active low and powers the integrated OLED.
   pinMode(36, OUTPUT);
-  digitalWrite(36, HIGH);
+  digitalWrite(36, LOW);
+  delay(10);
   pinMode(kTxLedPin, OUTPUT);
   digitalWrite(kTxLedPin, LOW);
   Wire.begin(17, 18);

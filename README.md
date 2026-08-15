@@ -76,6 +76,11 @@ ESP32 flash is not encrypted, so someone with physical flash-read access could
 still recover NVS data. An app-only web update at `0x10000` preserves NVS; a
 full recovery flash may erase it.
 
+For enclosed or headless installs, the guided Canadaverse flasher can provision
+the same values over USB after the app image is verified. The fields remain in
+browser memory only, the firmware never echoes them, and they are cleared from
+the page after the device confirms that they were saved.
+
 ## Safety boundaries
 
 - No Wi-Fi scanning or WiGLE API access.
@@ -127,6 +132,18 @@ python tools/capture_screen.py --port COM21 --output evidence/rcc6-screen.png
 The capture tool checks the framebuffer dimensions and CRC before writing the
 PNG. Substitute the exact verified port; opening an unrelated serial device is
 not a valid qualification step.
+
+## Heltec V4 hardware validation
+
+The V4 release candidate was exercised on a physical WiFi LoRa 32 V4/V4.3 with
+the display, Canada MeshCore preset, WDGWars uplink, USB provisioning, and
+Biscuit-compatible BLE service active together:
+
+![Heltec V4 showing WDG READY after an accepted MeshCore upload](evidence/heltec-v4-wdg-after-mesh.png)
+
+See [`evidence/V4_HARDWARE_VALIDATION.md`](evidence/V4_HARDWARE_VALIDATION.md)
+for the bounded validation record. The device was enclosed, so the image is a
+CRC-verified capture of the framebuffer actually sent to its OLED driver.
 
 ## Protocol notes
 

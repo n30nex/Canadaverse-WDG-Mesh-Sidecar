@@ -34,6 +34,7 @@ namespace {
 
 constexpr char kWdgUploadUrl[] = "https://wdgwars.pl/api/upload/";
 constexpr char kWdgMeUrl[] = "https://wdgwars.pl/api/me";
+constexpr char kUsbProvisionPrefix[] = "CFG:WDG1:";
 constexpr size_t kWdgApiKeyLength = 64;
 constexpr size_t kMeshUploadQueueSize = 32;
 constexpr size_t kMeshAttemptedNodeCount = 64;
@@ -726,6 +727,84 @@ bool saveWdgConfig(const String &ssid, const String &wifiPassword,
   const bool keySaved = preferences.putString("api_key", apiKey) > 0;
   preferences.end();
   return ssidSaved && passwordSaved && keySaved;
+}
+
+bool decodeProvisionField(const String &encoded, size_t maxLength,
+                          String &decoded) {
+  decoded = "";
+  if (encoded.isEmpty()) {
+    return true;
+  }
+  if (encoded.length() > 4 * ((maxLength + 2) / 3)) {
+    return false;
+  }
+
+  unsigned char bytes[64] = {};
+  size_t decodedLength = 0;
+  const int result = mbedtls_base64_decode(
+      bytes, sizeof(bytes), &decodedLength,
+      reinterpret_cast<const unsigned char *>(encoded.c_str()),
+      encoded.length());
+  if (result != 0 || decodedLength > maxLength) {
+    memset(bytes, 0, sizeof(bytes));
+    return false;
+  }
+  decoded.reserve(decodedLength + 1);
+  for (size_t i = 0; i < decodedLength; ++i) {
+    if (bytes[i] == '\0') {
+      decoded = "";
+      memset(bytes, 0, sizeof(bytes));
+      return false;
+    }
+    decoded += static_cast<char>(bytes[i]);
+  }
+  memset(bytes, 0, sizeof(bytes));
+  return true;
+}
+
+bool handleUsbProvisioning(const String &command) {
+  if (!command.startsWith(kUsbProvisionPrefix)) {
+    return false;
+  }
+  Serial.println("RX command=wdgprovision");
+
+  const size_t prefixLength = strlen(kUsbProvisionPrefix);
+  const int firstSeparator = command.indexOf(':', prefixLength);
+  const int secondSeparator =
+      firstSeparator >= 0 ? command.indexOf(':', firstSeparator + 1) : -1;
+  String ssid;
+  String wifiPassword;
+  String apiKey;
+  bool valid = firstSeparator >= 0 && secondSeparator > firstSeparator;
+  if (valid) {
+    valid = decodeProvisionField(
+                command.substring(prefixLength, firstSeparator), 32, ssid) &&
+            decodeProvisionField(
+                command.substring(firstSeparator + 1, secondSeparator), 63,
+                wifiPassword);
+    apiKey = command.substring(secondSeparator + 1);
+    apiKey.trim();
+    apiKey.toLowerCase();
+    valid = valid && !ssid.isEmpty() &&
+            (wifiPassword.isEmpty() || wifiPassword.length() >= 8) &&
+            isWdgApiKey(apiKey);
+  }
+  if (!valid || !saveWdgConfig(ssid, wifiPassword, apiKey)) {
+    ssid = "";
+    wifiPassword = "";
+    apiKey = "";
+    Serial.println("RSP:wdgprovision:ERROR");
+    return true;
+  }
+
+  ssid = "";
+  wifiPassword = "";
+  apiKey = "";
+  Serial.println("RSP:wdgprovision:OK");
+  Serial.flush();
+  delay(250);
+  ESP.restart();
+  return true;
 }
 
 String setupPage() {
@@ -1972,7 +2051,9 @@ void loop() {
   if (Serial.available()) {
     String command = Serial.readStringUntil('\n');
     command.trim();
-    if (command == "CMD:wdgsetup:" || command == "CMD:wdgstatus:" ||
+    if (command.startsWith(kUsbProvisionPrefix)) {
+      handleUsbProvisioning(command);
+    } else if (command == "CMD:wdgsetup:" || command == "CMD:wdgstatus:" ||
         command == "CMD:screenshot:") {
       handleCommand(command);
     }

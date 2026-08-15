@@ -1,20 +1,26 @@
 # Canadaverse WDG Mesh Sidecar
 
-Open-source MeshCore companion firmware for WDGWars wardrives. Carry one
+Open-source MeshCore and Meshtastic companion firmware for WDGWars wardrives. Carry one
 supported Heltec beside a Biscuit Pro or another Wi-Fi wardriver: the primary
 device records 2.4/5 GHz access points, while this sidecar receives live
-MeshCore node adverts and sends eligible locations directly to WDGWars.
+LoRa node traffic and sends eligible locations directly to WDGWars.
 
 The sidecar does **not** scan Wi-Fi, call WiGLE, import old logs, or perform a
-history sweep. It handles live MeshCore traffic from the current boot only.
+history sweep. It handles live radio traffic from the current boot only.
+
+> **Experimental dual-protocol build:** WDGWars' public API/client currently
+> documents MeshCore, not Meshtastic scoring. This build is kept separate from
+> the normal MeshCore-only release until a real server import and points result
+> are proved. Do not replace a working MeshCore-only deployment merely to try
+> this build.
 
 ## Hardware and release status
 
-| Device | MCU | Display | Release-candidate status |
+| Device | MCU | Display | Experimental dual build status |
 | --- | --- | --- | --- |
-| Heltec RCC6 prototype | ESP32-C6 | 220x128 NV3001B TFT | Built and hardware tested |
-| Heltec LoRa 32 V3 | ESP32-S3 | 128x64 OLED | Built; hardware qualification tracked in release evidence |
-| Heltec LoRa 32 V4/V4.3 | ESP32-S3 | 128x64 OLED | Builds successfully; physical qualification required before stable status |
+| Heltec RCC6 prototype | ESP32-C6 | 220x128 NV3001B TFT | Builds; not flashed or hardware-tested; working unit remains MeshCore-only |
+| Heltec LoRa 32 V3 | ESP32-S3 | 128x64 OLED | Builds; dual mode not hardware-tested |
+| Heltec LoRa 32 V4/V4.3 | ESP32-S3 | 128x64 OLED | Builds; dual mode not hardware-tested |
 
 Use the [Canadaverse web flasher](https://flasher.canadaverse.org/) for
 published, board-specific images. The flasher checks the connected chip and
@@ -26,8 +32,21 @@ image on either ESP32-S3 board.
 - Listens on the Canadian MeshCore narrow preset: `910.525 MHz`, `62.5 kHz`,
   `SF7`, `CR 4/5`, private sync word, and 32-symbol preamble.
 - Validates signed MeshCore adverts with the pinned official MeshCore library.
-- Uploads only nodes with valid, signed latitude and longitude using WDGWars'
-  `meshcore_nodes` schema and HMAC authentication.
+- Passively listens to Canada's public Meshtastic LongFast default:
+  `906.875 MHz`, `250 kHz`, `SF11`, `CR 4/5`, public sync word, and
+  16-symbol preamble. It recognizes public-channel NodeInfo, Telemetry,
+  Position, and opt-in Map Report packets. Only Position and explicitly
+  location-opted-in Map Report packets can produce a located WDG candidate;
+  it never transmits or routes Meshtastic traffic.
+- Uses a 17-second cycle: 12 seconds MeshCore and 5 seconds Meshtastic. A
+  packet-in-progress guard prevents a boundary from truncating a LoRa frame,
+  and an active MeshCore repeater poll keeps the radio on MeshCore until that
+  bounded exchange finishes.
+- Uploads only MeshCore nodes with valid, signed latitude and longitude using
+  WDGWars' `meshcore_nodes` schema and HMAC authentication. Public Meshtastic
+  positions require valid non-zero coordinates and are distinctly labelled
+  `MESHTASTIC`; server acceptance remains release-gated until proved with a
+  real public LongFast position packet.
 - Uses a bounded RAM queue: 32 unique nodes, 15-minute expiry, 15-second quiet
   flush, and a 60-second maximum batch wait.
 - Never automatically replays a batch after a POST attempt, because a lost
@@ -47,13 +66,17 @@ image on either ESP32-S3 board.
 2. Connect Biscuit Manager to the Biscuit Pro and start the Wi-Fi wardrive.
 3. Power the Mesh Sidecar. Its display should reach `WDG READY`.
 4. Drive normally. The Pro owns Wi-Fi/BLE collection; the sidecar independently
-   submits only live, located MeshCore nodes.
+   submits only live, located MeshCore and Meshtastic nodes.
 
 Android can keep the Biscuit Pro BLE connection and the phone hotspot active
-at the same time. The sidecar does not need a second Biscuit Manager
-connection to upload. Biscuit Manager currently has no native MeshCore record
-type, so its optional BLE connection is for setup/status compatibility rather
-than carrying MeshCore records through the app.
+at the same time. Keep the Biscuit Pro in **Manager mode** if it manages
+official Biscuit Nodes. This Heltec sidecar is not an official Biscuit Node,
+does not join the Pro's encrypted ESP-NOW cluster, and will not appear in
+Biscuit Manager's Node Management screen. It uploads LoRa observations
+directly over the hotspot; its optional BLE service is only for setup/status
+compatibility. Official Biscuit Node support is limited to the boards and
+firmware listed in the
+[Biscuit Node documentation](https://codehedge.github.io/Biscuit-Wiki/devices/node.html).
 
 ## First-time setup
 
@@ -89,6 +112,11 @@ the page after the device confirms that they were saved.
 - No persistent upload queue. Rebooting clears pending and attempted-node RAM.
 - No synthetic location. Missing, invalid, or `0,0` coordinates are skipped.
 - No admin login, attack command, flooded login, or mesh forwarding.
+- No Meshtastic transmit, acknowledgement, routing, message capture, private
+  channel key, or MQTT behavior. NodeInfo labels nodes and Telemetry is counted
+  only as received traffic; neither is invented into a location. Only public
+  LongFast Position and location-opted-in Map Report packets with valid,
+  non-zero coordinates are eligible.
 - Repeater polling is limited to a signed repeater advert heard directly or
   through one advertised hop, one attempt per repeater per 30 minutes per boot,
   and at most eight neighbour entries.
@@ -145,6 +173,9 @@ See [`evidence/V4_HARDWARE_VALIDATION.md`](evidence/V4_HARDWARE_VALIDATION.md)
 for the bounded validation record. The device was enclosed, so the image is a
 CRC-verified capture of the framebuffer actually sent to its OLED driver.
 
+That evidence covers the earlier MeshCore-only candidate. It does **not**
+qualify `v1.1.0-meshtastic-exp.1`, which is intentionally software-tested only.
+
 ## Protocol notes
 
 The optional BLE/USB status stream emits genuine MeshCore data as:
@@ -153,12 +184,22 @@ The optional BLE/USB status stream emits genuine MeshCore data as:
 DATA:MESHCORE:<node_id>,<node_type>,<name>,<lat>,<lon>,<rssi>,<snr>,<advert_timestamp>,<public_key>,<path_hops>
 ```
 
+Public Meshtastic positions use a separate record:
+
+```text
+DATA:MESHTASTIC:!<node_number>,<name>,<lat>,<lon>,<rssi>,<snr>
+```
+
 It never disguises MeshCore observations as Wi-Fi, Bluetooth, or 802.15.4.
 WDGWars node IDs are the first four public-key bytes, matching WatchDogsGo.
 
 The display/pin support derives from the public NeonPocketMC board projects.
 Packet routing, identity, signature validation, and guest requests use pinned
 [`meshcore-dev/MeshCore`](https://github.com/meshcore-dev/MeshCore) sources.
+The receive-only public LongFast decoder follows Meshtastic's published
+[radio framing](https://github.com/meshtastic/firmware/blob/develop/src/mesh/RadioInterface.h)
+and [protobuf schemas](https://github.com/meshtastic/protobufs/tree/master/meshtastic)
+without linking Meshtastic firmware code.
 WDGWars payload/authentication behavior follows
 [`LOCOSP/WatchDogsGo`](https://github.com/LOCOSP/WatchDogsGo). See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

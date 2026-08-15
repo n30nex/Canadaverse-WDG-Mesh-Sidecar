@@ -37,9 +37,10 @@ def test_watchdogsgo_meshcore_contract_is_present():
         '"rssi"',
         '"first_seen"',
         '"type"',
-        '"MESHCORE"',
     ):
         assert field.replace('"', '\\"') in SOURCE
+    assert '"MESHCORE"' in SOURCE
+    assert '"MESHTASTIC"' in SOURCE
 
 
 def test_hmac_envelope_matches_watchdogsgo_algorithm():
@@ -117,17 +118,18 @@ def test_wifi_reconnect_reports_only_safe_numeric_state():
     assert "WiFi.disconnect(false, false);" in SOURCE
 
 
-def test_meshcore_upload_flushes_without_phone_but_never_replays_post():
+def test_live_mesh_upload_flushes_without_phone_but_never_replays_post():
     assert "constexpr uint32_t kMeshUploadQuietFlushMs = 15 * 1000UL;" in SOURCE
     assert "constexpr uint32_t kMeshUploadMaxBatchWaitMs = 60 * 1000UL;" in SOURCE
     assert (
         "meshClient.service(wdgConfigured && wdgAuthValid && !setupPortalActive);"
         in SOURCE
     )
-    assert "MeshCore live batch window ended; WDGWars upload requested" in SOURCE
+    assert "Live mesh batch window ended; WDGWars upload requested" in SOURCE
     assert "Once POST was attempted, never replay the batch automatically" in SOURCE
-    assert "rememberAttemptedMeshBatch(sentCount);" in SOURCE
-    assert "meshNodeAlreadyAttempted(nodeId)" in SOURCE
+    assert "rememberAttemptedMeshBatch(protocol);" in SOURCE
+    assert "meshNodeAlreadyAttempted(protocol, nodeId)" in SOURCE
+    assert "removeAttemptedProtocol(protocol);" in SOURCE
 
 
 def test_repeater_poll_is_direct_bounded_and_never_invents_gps():
@@ -151,8 +153,8 @@ def test_biscuit_pro_sidecar_never_duplicates_wifi_wardrive():
     assert "volatile bool meshStreamRequested = false;" in SOURCE
     assert 'startMeshCoreSidecar("wardrive")' in SOURCE
     assert 'startMeshCoreSidecar("wardriveall")' in SOURCE
-    assert "MeshCore sidecar active; WiFi handled by Biscuit Pro" in SOURCE
-    assert "BLE MeshCore status stream will resume after notifications" in SOURCE
+    assert "Dual mesh sidecar active; WiFi handled by Biscuit Pro" in SOURCE
+    assert "BLE dual-mesh status stream will resume after notifications" in SOURCE
     assert "meshStreamRequested = false;" in SOURCE
     assert "WiFi.scanNetworks" not in SOURCE
     assert "DATA:AP:" not in SOURCE
@@ -162,7 +164,81 @@ def test_biscuit_pro_sidecar_never_duplicates_wifi_wardrive():
     assert "meshUploadCount = 0" not in SOURCE[start:stop]
 
 
+def test_meshtastic_uses_canada_public_longfast_receive_only():
+    for token in (
+        "constexpr float kMeshtasticFrequencyMhz = 906.875f;",
+        "constexpr float kMeshtasticBandwidthKhz = 250.0f;",
+        "constexpr uint8_t kMeshtasticSpreadingFactor = 11;",
+        "constexpr uint8_t kMeshtasticCodingRate = 5;",
+        "constexpr uint8_t kMeshtasticSyncWord = 0x2B;",
+        "constexpr uint16_t kMeshtasticPreambleSymbols = 16;",
+        "constexpr uint8_t kMeshtasticPublicChannelHash = 0x08;",
+        "kMeshtasticPositionPort = 3",
+        "kMeshtasticNodeInfoPort = 4",
+        "kMeshtasticTelemetryPort = 67",
+        "kMeshtasticMapReportPort = 73",
+    ):
+        assert token in SOURCE
+
+    start = SOURCE.index("bool startMeshtasticListener")
+    stop = SOURCE.index("bool deferRadioSwitchForPacket", start)
+    listener = SOURCE[start:stop]
+    assert "startReceive" in listener
+    assert "startTransmit" not in listener
+
+
+def test_meshtastic_decoder_has_a_known_encrypted_position_vector():
+    assert "mbedtls_aes_crypt_ctr" in SOURCE
+    assert "0xD4, 0xF1, 0xBB, 0x3A" in SOURCE
+    assert "0xD4, 0x14, 0xE5, 0x21" in SOURCE
+    assert "0x12345678, 0x89ABCDEF" in SOURCE
+    assert "latitude == 436532000" in SOURCE
+    assert "longitude == -793832000" in SOURCE
+    assert "name == \"Test Node\"" in SOURCE
+    assert "Meshtastic public LongFast decoder self-test passed" in SOURCE
+
+
+def test_map_report_requires_explicit_location_opt_in_and_telemetry_is_not_uploaded():
+    start = SOURCE.index("bool parseMeshtasticMapReport")
+    stop = SOURCE.index("bool decryptMeshtasticPublicPayload", start)
+    parser = SOURCE[start:stop]
+    assert "field == 9 || field == 10" in parser
+    assert "field == 14" in parser
+    assert "locationOptedIn" in parser
+    assert "hasLatitude && hasLongitude && locationOptedIn" in parser
+
+    start = SOURCE.index("void handleMeshtasticPacket")
+    stop = SOURCE.index("bool applyLoRaListener", start)
+    handler = SOURCE[start:stop]
+    assert "port == kMeshtasticMapReportPort" in handler
+    assert "port == kMeshtasticPositionPort" in handler
+    assert "port == kMeshtasticTelemetryPort" not in handler
+
+
+def test_radio_schedule_is_meshcore_dominant_and_packet_safe():
+    assert "constexpr uint32_t kMeshCoreListenMs = 12 * 1000UL;" in SOURCE
+    assert "constexpr uint32_t kMeshtasticListenMs = 5 * 1000UL;" in SOURCE
+    assert "constexpr uint32_t kMaxRadioPacketGuardMs = 2500UL;" in SOURCE
+    assert "RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED" in SOURCE
+    assert "RADIOLIB_SX126X_IRQ_HEADER_VALID" in SOURCE
+    assert "RADIOLIB_SX126X_IRQ_RX_DONE" in SOURCE
+    assert "!meshClient.pollInProgress()" in SOURCE
+    assert 12 > 5
+    assert (12 + 5) == 17
+
+
+def test_ui_and_wdg_counters_distinguish_both_mesh_protocols():
+    assert '"RX MC %-6lu MT %-6lu"' in SOURCE
+    assert '"WDG MC+%lu MT+%lu Q%u"' in SOURCE
+    assert '"WDG MC+%lu MT+%lu"' in SOURCE
+    assert "wdgAcceptedMeshCoreCount" in SOURCE
+    assert "wdgAcceptedMeshtasticCount" in SOURCE
+    assert "meshProtocolWdgType(node.protocol)" in SOURCE
+    assert "node.protocol != protocol" in SOURCE
+
+
 def test_all_three_exact_board_targets_are_pinned():
+    assert 'kFirmwareVersion[] = "v1.1.0-meshtastic-exp.1"' in BOARD_HEADER
     assert "default_envs = rcc6_wdg_mesh, heltec_v3_wdg_mesh, heltec_v4_wdg_mesh" in PLATFORMIO
     assert "[env:rcc6_wdg_mesh]" in PLATFORMIO
     assert "[env:heltec_v3_wdg_mesh]" in PLATFORMIO

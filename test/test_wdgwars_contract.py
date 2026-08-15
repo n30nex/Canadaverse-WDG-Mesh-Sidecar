@@ -99,6 +99,18 @@ def test_setup_uses_a_dedicated_ap_and_minimum_numeric_wpa2_pin():
     assert "for (size_t i = 0; i < 8; ++i)" in SOURCE
 
 
+def test_headless_usb_provisioning_is_bounded_and_secret_safe():
+    assert 'constexpr char kUsbProvisionPrefix[] = "CFG:WDG1:";' in SOURCE
+    assert "decodeProvisionField" in SOURCE
+    assert "decodedLength > maxLength" in SOURCE
+    assert "saveWdgConfig(ssid, wifiPassword, apiKey)" in SOURCE
+    assert "wifiPassword.isEmpty() || wifiPassword.length() >= 8" in SOURCE
+    assert 'Serial.println("RSP:wdgprovision:OK")' in SOURCE
+    assert 'Serial.println("RSP:wdgprovision:ERROR")' in SOURCE
+    assert 'Serial.println("RX command=wdgprovision")' in SOURCE
+    assert "Serial.println(command)" not in SOURCE
+
+
 def test_wifi_reconnect_reports_only_safe_numeric_state():
     assert "info.wifi_sta_disconnected.reason" in SOURCE
     assert "WDGWars Wi-Fi disconnected: reason=%d" in SOURCE
@@ -185,7 +197,7 @@ def test_v4_front_end_uses_upstream_power_and_rx_patch_contract():
     v4_start = BOARD_SOURCE.index("#elif defined(WDG_BOARD_HELTEC_V4)", v3_start)
     board_end = BOARD_SOURCE.index("#endif", v4_start)
     assert "digitalWrite(36, LOW);" in BOARD_SOURCE[v3_start:v4_start]
-    assert "digitalWrite(36, HIGH);" in BOARD_SOURCE[v4_start:board_end]
+    assert "digitalWrite(36, LOW);" in BOARD_SOURCE[v4_start:board_end]
 
 
 def test_public_setup_has_physical_button_and_captive_dns():

@@ -127,7 +127,9 @@ def main() -> None:
     port.rts = False
     port.open()
     try:
-        time.sleep(0.25)
+        # Opening native USB can restart an ESP32-S3. Let display setup finish so
+        # the diagnostic command cannot capture the driver's initial blank frame.
+        time.sleep(2.0)
         port.reset_input_buffer()
         port.write(b"CMD:screenshot:\n")
         port.flush()

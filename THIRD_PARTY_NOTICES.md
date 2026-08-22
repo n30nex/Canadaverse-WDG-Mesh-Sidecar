@@ -63,3 +63,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Meshtastic protocol references
+
+The firmware contains an independent, receive-only decoder for Meshtastic's
+public LongFast radio framing and the small subset of its published protobuf
+wire schema needed for NodeInfo, Telemetry, Position, and Map Report packets. Meshtastic firmware and
+protobuf repositories are licensed under GPL-3.0. No Meshtastic source code,
+generated protobuf code, or linked binary is included here; the public wire
+format is implemented directly from the protocol documentation and schemas:
+
+- https://github.com/meshtastic/firmware
+- https://github.com/meshtastic/protobufs
